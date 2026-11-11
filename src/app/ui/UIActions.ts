@@ -13,4 +13,5 @@ export default interface UIActions {
 	getControlsStateHash: () => string;
 	setDrivingEnabled: (enabled: boolean) => void;
 	setDrivingTouchButton: (button: keyof DrivingTouchInput, pressed: boolean) => void;
+	setDrivingMaxSpeedMph: (mph: number) => void;
 }

@@ -122,17 +122,18 @@ export default class SceneSystem extends System {
 
 		// The drivable car (driving mode): a simple red box body with a
 		// darker cabin, rendered through the instanced-vehicle pipeline.
-		// Body: 4.6 m long, 0.9 m tall, 2.0 m wide, base on the ground.
-		// Cabin: 2.2 m long, 0.55 m tall, 1.7 m wide, set slightly rearward
-		// on top of the body. The aircraft parts stay unregistered: live
-		// air traffic is still off, only the car uses this pipeline.
+		// Body: 4.5 m long, 0.85 m tall, 1.8 m wide — a real sedan
+		// footprint, base on the ground. Cabin: 2.2 m long, 0.5 m tall,
+		// 1.6 m wide, set slightly rearward on top of the body. The
+		// aircraft parts stay unregistered: live air traffic is still
+		// off, only the car uses this pipeline.
 		this.objects.instancedAircraftParts.set(
 			AircraftPartType.CarBody,
-			new InstancedAircraftPart(createBoxModelSourceBuffers(4.6, 0.9, 2.0))
+			new InstancedAircraftPart(createBoxModelSourceBuffers(4.5, 0.85, 1.8))
 		);
 		this.objects.instancedAircraftParts.set(
 			AircraftPartType.CarCabin,
-			new InstancedAircraftPart(createBoxModelSourceBuffers(2.2, 0.55, 1.7, -0.3, 0.9, 0))
+			new InstancedAircraftPart(createBoxModelSourceBuffers(2.2, 0.5, 1.6, -0.3, 0.85, 0))
 		);
 
 		this.objects.instancedObjects.set('tree', new InstancedTree(ModelManager.getGLTFModel('tree')));

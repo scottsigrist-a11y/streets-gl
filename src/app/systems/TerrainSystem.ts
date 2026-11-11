@@ -107,6 +107,21 @@ export default class TerrainSystem extends System {
 		}
 	}
 
+	// Loading progress across the area loaders' viewports (water + height
+	// tiles): tiles with data vs all tiles assigned to the viewports.
+	public getLoadProgress(): {loaded: number; total: number} {
+		let loaded = 0;
+		let total = 0;
+
+		for (const loader of Object.values(this.areaLoaders)) {
+			const progress = loader.getLoadProgress();
+			loaded += progress.loaded;
+			total += progress.total;
+		}
+
+		return {loaded, total};
+	}
+
 	private updateHeightLoaders(camera: Object3D): void {
 		const cameraPosition2D = new Vec2(camera.position.x, camera.position.z);
 

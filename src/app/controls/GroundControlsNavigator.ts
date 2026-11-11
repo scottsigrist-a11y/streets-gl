@@ -44,6 +44,13 @@ export default class GroundControlsNavigator extends ControlsNavigator {
 	private isInTransition: boolean = false;
 	private transitionType: TransitionType = null;
 	private transitionStart: number = 0;
+	// While driving, the follow camera owns the target height (the car
+	// height, which DrivingSystem resolves with fallbacks). The heightmap
+	// must not overwrite it: when its tile has not loaded yet the query
+	// returns null and the target would otherwise stay at 0, putting the
+	// chase camera underground (see setFollowCamera).
+	private followTargetHeight: number | null = null;
+	private nearPlane: number = 10;
 	public slippyMapOverlayFactor: number = 0;
 	public switchToSlippy: boolean = false;
 	private transitionYawFrom: number = 0;
@@ -80,13 +87,45 @@ export default class GroundControlsNavigator extends ControlsNavigator {
 
 	// Driving mode: point the chase camera at the car. DrivingSystem calls
 	// this every frame; update() then positions the camera from these
-	// values. Target height still comes from the terrain heightmap.
-	public setFollowCamera(x: number, z: number, yaw: number, pitch: number, distance: number): void {
+	// values. The target height is the car height (look point, already
+	// including a small offset above the car): it must come from here,
+	// because the terrain heightmap query returns null until the height
+	// tile for the area has loaded, and leaving target.y at its initial 0
+	// put the chase camera ~185 m underground in Arlington (terrain
+	// ~170 m) — a blank screen on entering drive mode.
+	public setFollowCamera(x: number, z: number, yaw: number, pitch: number, distance: number, targetHeight: number): void {
 		this.target.x = x;
 		this.target.z = z;
+
+		if (Number.isFinite(targetHeight)) {
+			this.target.y = targetHeight;
+			this.followTargetHeight = targetHeight;
+		}
+
 		this.yaw = yaw;
 		this.pitch = pitch;
 		this.distance = this.distanceTarget = distance;
+
+		// The chase camera sits ~9.7 m from the car, inside the default
+		// 10 m near plane, which would clip the car. Pull the near plane
+		// in while following; clearFollowCamera() restores it.
+		this.setNearPlane(0.5);
+	}
+
+	// Driving ended: the heightmap owns the target height again, and the
+	// near plane goes back to the default for the normal cameras.
+	public clearFollowCamera(): void {
+		this.followTargetHeight = null;
+		this.setNearPlane(10);
+	}
+
+	private setNearPlane(value: number): void {
+		if (this.nearPlane === value) {
+			return;
+		}
+
+		this.nearPlane = value;
+		this.updateCameraProjectionMatrix();
 	}
 
 	// Clear any held movement keys (e.g. W held when driving starts, so the
@@ -332,8 +371,16 @@ export default class GroundControlsNavigator extends ControlsNavigator {
 		const oldPosition = this.projectOnGroundPredict(this.pointerPosition.x, this.pointerPosition.y, oldDistance);
 		const newPosition = this.projectOnGroundPredict(this.pointerPosition.x, this.pointerPosition.y, newDistance);
 
-		this.target.x += oldPosition.x - newPosition.x;
-		this.target.z += oldPosition.y - newPosition.y;
+		// A degenerate ray (e.g. looking exactly horizontally) makes the
+		// ground projection non-finite; applying it would poison the
+		// target with NaN and blank the view permanently.
+		if (
+			Number.isFinite(oldPosition.x) && Number.isFinite(oldPosition.y) &&
+			Number.isFinite(newPosition.x) && Number.isFinite(newPosition.y)
+		) {
+			this.target.x += oldPosition.x - newPosition.x;
+			this.target.z += oldPosition.y - newPosition.y;
+		}
 		this.distance = newDistance;
 
 		if (this.distance > Config.MaxCameraDistance && !this.isInTransition) {
@@ -353,15 +400,22 @@ export default class GroundControlsNavigator extends ControlsNavigator {
 	}
 
 	private updateTargetHeightFromHeightmap(): void {
+		// While the follow camera is active the car height owns target.y.
+		if (this.followTargetHeight !== null) {
+			return;
+		}
+
 		const currentHeight = this.terrainHeightProvider.getHeightGlobalInterpolated(this.target.x, this.target.z, true);
 
-		if (currentHeight !== null) {
+		// A NaN height (bad input coordinates) is not a height: applying
+		// it would poison target.y and blank the view.
+		if (currentHeight !== null && Number.isFinite(currentHeight)) {
 			this.target.y = currentHeight;
 		}
 	}
 
 	private updateCameraProjectionMatrix(): void {
-		this.camera.near = 10;
+		this.camera.near = this.nearPlane;
 		this.camera.far = 100000;
 		this.camera.updateProjectionMatrix();
 	}
@@ -521,6 +575,16 @@ export default class GroundControlsNavigator extends ControlsNavigator {
 		const cameraOffset = Vec3.multiplyScalar(this.direction, -this.distance);
 		const cameraPosition = Vec3.add(this.target, cameraOffset);
 
+		// Never hand the renderer a non-finite camera or target: one bad
+		// frame would blank the view, and a NaN target never recovers on
+		// its own. Keep the last good transform instead.
+		if (
+			!Number.isFinite(cameraPosition.x) || !Number.isFinite(cameraPosition.y) || !Number.isFinite(cameraPosition.z) ||
+			!Number.isFinite(this.target.x) || !Number.isFinite(this.target.y) || !Number.isFinite(this.target.z)
+		) {
+			return;
+		}
+
 		this.camera.position.set(cameraPosition.x, cameraPosition.y, cameraPosition.z);
 		this.camera.lookAt(this.target, false);
 
@@ -530,7 +594,9 @@ export default class GroundControlsNavigator extends ControlsNavigator {
 			const positionOnGround = this.projectOnGround(this.lastLMBMoveEvent.x, this.lastLMBMoveEvent.y);
 			const movementDelta = Vec2.sub(this.LMBDownPosition, positionOnGround);
 
-			this.moveTarget(movementDelta.x, movementDelta.y);
+			if (Number.isFinite(movementDelta.x) && Number.isFinite(movementDelta.y)) {
+				this.moveTarget(movementDelta.x, movementDelta.y);
+			}
 
 			const cameraOffset = Vec3.multiplyScalar(this.direction, -this.distance);
 			const cameraPosition = Vec3.add(this.target, cameraOffset);

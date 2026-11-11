@@ -95,8 +95,16 @@ export default class ControlsSystem extends System {
 	}
 
 	// Called every frame while driving: point the ground camera at the car.
-	public setDrivingCamera(x: number, z: number, yaw: number, pitch: number, distance: number): void {
-		this.groundNavigator.setFollowCamera(x, z, yaw, pitch, distance);
+	// targetHeight is the car's look height; the ground navigator needs it
+	// because the heightmap query returns null until its tile loads.
+	public setDrivingCamera(x: number, z: number, yaw: number, pitch: number, distance: number, targetHeight: number): void {
+		this.groundNavigator.setFollowCamera(x, z, yaw, pitch, distance, targetHeight);
+	}
+
+	// Driving ended: hand the target height back to the heightmap and
+	// restore the normal near plane.
+	public clearDrivingCamera(): void {
+		this.groundNavigator.clearFollowCamera();
 	}
 
 	private initCameraAndNavigators(): void {
@@ -269,6 +277,14 @@ export default class ControlsSystem extends System {
 	}
 
 	public get northDirection(): number {
+		// While driving the ground navigator is disabled (DrivingSystem
+		// owns its input), but it is still the active camera controller:
+		// its yaw is the camera heading. Returning 0 here froze the
+		// compass in drive mode.
+		if (this.drivingMode) {
+			return this.groundNavigator.yaw;
+		}
+
 		if (this.groundNavigator && this.groundNavigator.isEnabled) {
 			return this.groundNavigator.yaw;
 		}

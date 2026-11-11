@@ -53,6 +53,9 @@ export default class Tile extends Object3D {
 	public inFrustum: boolean = true;
 	public distanceToCamera: number = null;
 	public disposed = false;
+	// True once the worker has delivered this tile's 3D buffers (load()
+	// ran). Tiles in the map but not yet loaded are still queued work.
+	public isLoaded = false;
 	public readonly labelBuffersList: TileLabelBuffers[] = [];
 	public labelsAABB: AABB3D = null;
 	public readonly instanceBuffers: TileInstanceBuffers = new Map();
@@ -89,6 +92,7 @@ export default class Tile extends Object3D {
 	}
 
 	public load(buffers: Tile3DBuffers): void {
+		this.isLoaded = true;
 		this.updateExtrudedGeometryOffsets(buffers.extruded);
 
 		this.extrudedMesh = new TileExtrudedMesh(buffers.extruded);

@@ -211,6 +211,32 @@ export default class TileSystem extends System {
 		return this.queue.shift();
 	}
 
+	// Loading progress for the current view: tiles in the camera frustum
+	// that have their 3D buffers vs all frustum tiles (in the map plus
+	// still queued for the worker). Tiles that failed to load stay
+	// unloaded, so they keep counting as pending — honestly, since their
+	// data really is missing.
+	public getLoadProgress(): {loaded: number; total: number} {
+		let loaded = 0;
+		let total = 0;
+
+		for (const tile of this.tiles.values()) {
+			if (!tile.inFrustum) {
+				continue;
+			}
+
+			total++;
+
+			if (tile.isLoaded) {
+				loaded++;
+			}
+		}
+
+		total += this.queue.length;
+
+		return {loaded, total};
+	}
+
 	private updateTilesDistancesToCamera(camera: Camera): void {
 		for (const tile of this.tiles.values()) {
 			tile.updateDistanceToCamera(camera);

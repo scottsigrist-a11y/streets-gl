@@ -134,6 +134,13 @@ export default class UISystem extends System {
 				if (drivingSystem) {
 					drivingSystem.setTouchButton(button, pressed);
 				}
+			},
+			setDrivingMaxSpeedMph: (mph: number): void => {
+				const drivingSystem = this.systemManager.getSystem(DrivingSystem);
+
+				if (drivingSystem) {
+					drivingSystem.setMaxSpeedMph(mph);
+				}
 			}
 		}
 

@@ -46,6 +46,45 @@
 		}
 	}
 
+	&__speed {
+		@extend %panel-bg;
+		@extend %panel-border;
+		@extend %panel-border-radius;
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		gap: 8px;
+		padding: 8px 12px;
+
+		&__label {
+			font-size: 11px;
+			letter-spacing: 1px;
+			white-space: nowrap;
+		}
+
+		&__slider {
+			width: 180px;
+			accent-color: #e05040;
+			cursor: pointer;
+		}
+
+		&__value {
+			width: 72px;
+			padding: 2px 4px;
+			font-size: 13px;
+			text-align: right;
+			background: transparent;
+			border: 1px solid rgba(128, 128, 128, 0.5);
+			border-radius: 4px;
+			color: inherit;
+		}
+
+		&__unit {
+			font-size: 12px;
+			opacity: 0.8;
+		}
+	}
+
 	&__controls {
 		display: flex;
 		flex-direction: row;
@@ -103,6 +142,7 @@
 @include themify($themes) {
 	.driving__driveButton,
 	.driving__speedo,
+	.driving__speed,
 	.driving__button,
 	.driving__stopButton {
 		color: themed('text-color');

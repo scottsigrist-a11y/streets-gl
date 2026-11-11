@@ -170,6 +170,28 @@ export default class TileAreaLoader<T extends TileSource<any>> {
 		return result;
 	}
 
+	// Loading progress for the current viewport: tiles in the viewport
+	// window that have data vs all tiles assigned to the window. Tiles
+	// still being fetched count as pending.
+	public getLoadProgress(): {loaded: number; total: number} {
+		let loaded = 0;
+		let total = 0;
+
+		for (const state of this.states) {
+			if (state.x < 0) {
+				continue;
+			}
+
+			total++;
+
+			if (state.tile && state.tile.data !== null) {
+				loaded++;
+			}
+		}
+
+		return {loaded, total};
+	}
+
 	private async loadTile(x: number, y: number): Promise<void> {
 		this.tileLoadingCount++;
 		const tile = await this.sourceFactory.create(x, y, this.zoom);
