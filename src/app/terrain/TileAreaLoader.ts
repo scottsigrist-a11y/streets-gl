@@ -29,6 +29,7 @@ export default class TileAreaLoader<T extends TileSource<any>> {
 	private readonly tiles: Map<string, T> = new Map();
 	private readonly sourceFactory: TileSourceFactory<T>;
 	private tileLoadingCount: number = 0;
+	private disposed: boolean = false;
 
 	public constructor(
 		{
@@ -86,6 +87,10 @@ export default class TileAreaLoader<T extends TileSource<any>> {
 	}
 
 	public update(viewportCenter: Vec2): void {
+		if (this.disposed) {
+			return;
+		}
+
 		for (const tile of this.tiles.values()) {
 			tile.markUnused();
 		}
@@ -197,11 +202,40 @@ export default class TileAreaLoader<T extends TileSource<any>> {
 		const tile = await this.sourceFactory.create(x, y, this.zoom);
 		this.tileLoadingCount--;
 
+		// The loader was disposed while this tile was in flight (adaptive
+		// detail swapped it out): drop the tile instead of caching it, so
+		// it does not leak a height-provider tracker reference.
+		if (this.disposed) {
+			tile.delete();
+			return;
+		}
+
 		this.setTile(x, y, tile);
 		tile.markUsed();
 
 		if (this.tiles.size > this.maxStoredTiles) {
 			this.tryDeleteLeastUsedTexture();
+		}
+	}
+
+	// Release every tile this loader holds (GPU textures + height
+	// provider tracker references) and stop loading more. Used when the
+	// adaptive detail system swaps a height loader out for another zoom.
+	public dispose(): void {
+		this.disposed = true;
+
+		for (const tile of this.tiles.values()) {
+			tile.delete();
+		}
+
+		this.tiles.clear();
+
+		for (const state of this.states) {
+			state.x = -1;
+			state.y = -1;
+			state.tile = null;
+			state.type = TileAreaLoaderCellStateType.Clear;
+			state.lastRenderType = TileAreaLoaderCellStateType.Empty;
 		}
 	}
 

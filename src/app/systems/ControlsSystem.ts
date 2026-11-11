@@ -11,9 +11,19 @@ import FreeControlsNavigator from "../controls/FreeControlsNavigator";
 import CursorStyleSystem from "./CursorStyleSystem";
 import PerspectiveCamera from "~/lib/core/PerspectiveCamera";
 import TerrainSystem from "~/app/systems/TerrainSystem";
+import TileSystem from "~/app/systems/TileSystem";
 import SlippyControlsNavigator from "~/app/controls/SlippyControlsNavigator";
+import UISystem from "~/app/systems/UISystem";
+import {
+	capMphForAltitudeAgl,
+	MetersToFeet,
+	MphToMps,
+	MpsToMph
+} from "~/app/utils/AdaptiveSpeed";
 
 const WheelZoomFactor = 6;
+const FlightHudUpdateInterval = 0.1; // seconds between flight HUD updates
+const DefaultFlightMaxSpeedMph = 100; // flight slider default, mph
 
 export interface ControlsState {
 	x: number;
@@ -47,6 +57,21 @@ export default class ControlsSystem extends System {
 	private freeNavigator: FreeControlsNavigator;
 	private slippyNavigator: SlippyControlsNavigator;
 	private activeNavigator: ControlsNavigator = null;
+	// Flight speed (free-fly mode): the HUD slider value in mph. The
+	// effective speed is the slider value capped by the altitude cap
+	// (see getFlightSpeedCapMph); the stored value is clamped to the cap
+	// every frame, so descending clamps the speed at once and the slider
+	// never shows a value above its live upper bound.
+	private flightMaxSpeedMph: number = DefaultFlightMaxSpeedMph;
+	// Last camera height above ground that resolved (m). Falls back to
+	// this when the terrain height tile under the camera has not loaded
+	// yet, so the cap does not jump to the ground value on a null query.
+	private lastKnownAgl: number | null = null;
+	private flightHudTimer: number = 0;
+	// Whether the last published flight HUD state was active. Used to
+	// publish active:false once when leaving flight mode, so the flight
+	// panel does not stay stuck on screen.
+	private lastFlightHudActive: boolean = false;
 
 	public constructor() {
 		super();
@@ -107,6 +132,71 @@ export default class ControlsSystem extends System {
 		this.groundNavigator.clearFollowCamera();
 	}
 
+	// Camera height above the ground (m). Null terrain heights (tile not
+	// loaded yet) fall back to the last resolved value, and to 0 when
+	// nothing has resolved — the conservative ground cap.
+	public getCameraAgl(): number {
+		const terrainHeight = this.systemManager.getSystem(TerrainSystem)
+			.terrainHeightProvider.getHeightGlobalInterpolated(this.camera.position.x, this.camera.position.z, true);
+
+		if (terrainHeight !== null && Number.isFinite(terrainHeight)) {
+			this.lastKnownAgl = Math.max(this.camera.position.y - terrainHeight, 0);
+		}
+
+		return this.lastKnownAgl ?? 0;
+	}
+
+	// The adaptive speed cap at the camera's current altitude: 100 mph
+	// at ground level, scaling logarithmically to 10,000 mph at
+	// 10,000 m above ground (see AdaptiveSpeed).
+	public getFlightSpeedCapMph(): number {
+		return capMphForAltitudeAgl(this.getCameraAgl());
+	}
+
+	// The flight HUD speed slider: the free camera's maximum speed in
+	// mph, clamped to the current altitude cap.
+	public setFlightMaxSpeedMph(mph: number): void {
+		this.flightMaxSpeedMph = MathUtils.clamp(Math.round(mph), 0, this.getFlightSpeedCapMph());
+		this.publishFlightHud();
+	}
+
+	// Speed (m/s) the free camera flies at: the slider value, or the
+	// full altitude cap while Shift is held. Both follow the cap live.
+	public getFlightSpeedMps(fast: boolean): number {
+		const capMph = this.getFlightSpeedCapMph();
+
+		if (fast) {
+			return capMph * MphToMps;
+		}
+
+		return Math.min(this.flightMaxSpeedMph, capMph) * MphToMps;
+	}
+
+	// Enter or exit free-fly mode from any mode (the FlightPanel's Fly
+	// button). Tab only toggles Ground <-> Free; this also works from the
+	// top-down slippy view.
+	public setFreeModeEnabled(enabled: boolean): void {
+		if (this.drivingMode) {
+			return;
+		}
+
+		if (enabled && this.mode !== NavigationMode.Free) {
+			const prevNavigator = this.activeNavigator;
+			this.groundNavigator.disable();
+			this.slippyNavigator.disable();
+			this.freeNavigator.enable();
+			this.freeNavigator.syncWithCamera(prevNavigator);
+			this.activeNavigator = this.freeNavigator;
+			this.mode = NavigationMode.Free;
+		} else if (!enabled && this.mode === NavigationMode.Free) {
+			this.freeNavigator.disable();
+			this.groundNavigator.enable();
+			this.groundNavigator.syncWithCamera(this.freeNavigator);
+			this.activeNavigator = this.groundNavigator;
+			this.mode = NavigationMode.Ground;
+		}
+	}
+
 	private initCameraAndNavigators(): void {
 		this.camera = this.systemManager.getSystem(SceneSystem).objects.camera;
 
@@ -114,7 +204,12 @@ export default class ControlsSystem extends System {
 		const terrainHeightProvider = this.systemManager.getSystem(TerrainSystem).terrainHeightProvider;
 
 		this.groundNavigator = new GroundControlsNavigator(this.element, this.camera, cursorStyleSystem, terrainHeightProvider);
-		this.freeNavigator = new FreeControlsNavigator(this.element, this.camera, terrainHeightProvider);
+		this.freeNavigator = new FreeControlsNavigator(
+			this.element,
+			this.camera,
+			terrainHeightProvider,
+			(fast: boolean): number => this.getFlightSpeedMps(fast)
+		);
 		this.slippyNavigator = new SlippyControlsNavigator(this.element, this.camera, cursorStyleSystem, terrainHeightProvider);
 
 		this.activeNavigator = this.slippyNavigator;
@@ -289,6 +384,12 @@ export default class ControlsSystem extends System {
 			return this.groundNavigator.yaw;
 		}
 
+		// In free-fly mode the free navigator is the camera controller:
+		// returning 0 here would freeze the compass while flying.
+		if (this.freeNavigator && this.freeNavigator.isEnabled) {
+			return this.freeNavigator.getCurrentState().yaw;
+		}
+
 		return 0;
 	}
 
@@ -340,8 +441,85 @@ export default class ControlsSystem extends System {
 			this.camera.zoom(MathUtils.lerp(1, Config.CameraFOVZoomFactor, alpha));
 		}
 
+		this.updateFlightHud(deltaTime);
 		this.updateHash();
 
 		++this.tick;
+	}
+
+	// Live flight HUD state (free-fly mode only), published to the
+	// FlightPanel: current speed, heading, height above ground in feet,
+	// the slider value and its live altitude cap, and the queued-data
+	// percentage. Also clamps the stored slider value to the cap every
+	// frame, so descending clamps the speed at once. Leaving flight mode
+	// publishes active:false once, so the flight panel clears instead of
+	// staying stuck on screen.
+	private updateFlightHud(deltaTime: number): void {
+		this.flightHudTimer += deltaTime;
+
+		const active = this.mode === NavigationMode.Free && !this.drivingMode && !!this.freeNavigator;
+
+		if (!active) {
+			if (this.lastFlightHudActive) {
+				this.lastFlightHudActive = false;
+				this.publishFlightHud();
+			}
+
+			return;
+		}
+
+		if (this.flightHudTimer < FlightHudUpdateInterval) {
+			return;
+		}
+
+		this.flightHudTimer = 0;
+
+		const capMph = this.getFlightSpeedCapMph();
+		this.flightMaxSpeedMph = Math.min(this.flightMaxSpeedMph, capMph);
+		this.lastFlightHudActive = true;
+
+		this.publishFlightHud();
+	}
+
+	// Publish the current flight HUD state immediately (used by the HUD
+	// timer and by the slider, so the panel answers at once).
+	private publishFlightHud(): void {
+		const uiSystem = this.systemManager.getSystem(UISystem);
+
+		if (!uiSystem || !this.freeNavigator) {
+			return;
+		}
+
+		const capMph = this.getFlightSpeedCapMph();
+		const agl = this.getCameraAgl();
+
+		uiSystem.setFlightState({
+			active: this.mode === NavigationMode.Free && !this.drivingMode,
+			speedMph: this.freeNavigator.currentSpeedMps * MpsToMph,
+			headingDeg: MathUtils.toDeg(this.freeNavigator.getCurrentState().yaw),
+			altitudeFt: Math.round(agl * MetersToFeet),
+			maxSpeedMph: this.flightMaxSpeedMph,
+			maxSpeedCapMph: capMph,
+			dataLoadedPct: this.computeDataLoadedPct()
+		});
+	}
+
+	// Percentage of the queued map data for the current view that has
+	// loaded (same basis as the driving HUD). Null when nothing is
+	// queued, so the HUD can hide the indicator.
+	private computeDataLoadedPct(): number | null {
+		const tileSystem = this.systemManager.getSystem(TileSystem);
+		const terrainSystem = this.systemManager.getSystem(TerrainSystem);
+
+		const vector = tileSystem ? tileSystem.getLoadProgress() : {loaded: 0, total: 0};
+		const terrain = terrainSystem ? terrainSystem.getLoadProgress() : {loaded: 0, total: 0};
+
+		const total = vector.total + terrain.total;
+
+		if (total === 0) {
+			return null;
+		}
+
+		return Math.round((vector.loaded + terrain.loaded) / total * 100);
 	}
 }

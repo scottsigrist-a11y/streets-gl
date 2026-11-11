@@ -3,33 +3,31 @@ import {useRecoilValue} from "recoil";
 import styles from './DrivingPanel.scss';
 import {ActionsContext, AtomsContext} from "~/app/ui/UI";
 import {DrivingTouchInput} from "~/app/systems/DrivingSystem";
+import {
+	mphToSlider,
+	sliderToMph,
+	SpeedSliderSteps
+} from "~/app/utils/AdaptiveSpeed";
 
 const CompassPoints = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-
-const SpeedSliderMax = 1000;
-const SpeedLimitMph = 10000;
-
-// Log scale: a plain 0–10,000 slider makes city speeds fiddly (25 mph
-// would be 0.25% of the range). On this scale the slider quarters land
-// near 9 / 99 / 999 / 10,000 mph, so low speeds are easy to pick, and
-// the exact value is always shown next to it.
-const mphToSlider = (mph: number): number => Math.round(Math.log10(mph / SpeedLimitMph * 9999 + 1) / 4 * SpeedSliderMax);
-const sliderToMph = (t: number): number => Math.round((Math.pow(10, t / SpeedSliderMax * 4) - 1) / 9999 * SpeedLimitMph);
 
 const DrivingPanel: React.FC = () => {
 	const atoms = useContext(AtomsContext);
 	const actions = useContext(ActionsContext);
 	const driving = useRecoilValue(atoms.driving);
+	const flight = useRecoilValue(atoms.flight);
 
 	const active = driving?.active ?? false;
+	const flying = flight?.active ?? false;
 
-	const setButton = useCallback((button: keyof DrivingTouchInput, pressed: boolean): void => {
-		actions.setDrivingTouchButton(button, pressed);
-	}, [actions]);
+	// The speed slider's upper bound is the live altitude cap (100 mph
+	// on the ground in drive mode), so the slider can never ask for more
+	// than the car may go at its altitude.
+	const maxSpeedCapMph = driving?.maxSpeedCapMph ?? 100;
 
 	const onSpeedSliderChange = useCallback((e: React.ChangeEvent<HTMLInputElement>): void => {
-		actions.setDrivingMaxSpeedMph(sliderToMph(Number(e.target.value)));
-	}, [actions]);
+		actions.setDrivingMaxSpeedMph(sliderToMph(Number(e.target.value), maxSpeedCapMph));
+	}, [actions, maxSpeedCapMph]);
 
 	const onMaxSpeedInput = useCallback((e: React.ChangeEvent<HTMLInputElement>): void => {
 		const value = parseInt(e.target.value, 10);
@@ -37,6 +35,10 @@ const DrivingPanel: React.FC = () => {
 		if (!Number.isNaN(value)) {
 			actions.setDrivingMaxSpeedMph(value);
 		}
+	}, [actions]);
+
+	const setButton = useCallback((button: keyof DrivingTouchInput, pressed: boolean): void => {
+		actions.setDrivingTouchButton(button, pressed);
 	}, [actions]);
 
 	// Hold-to-drive buttons: press and hold to drive, release to let go.
@@ -61,15 +63,28 @@ const DrivingPanel: React.FC = () => {
 		onContextMenu: (e: React.MouseEvent): void => e.preventDefault()
 	});
 
+	// While flying, the flight HUD owns this spot on the screen.
+	if (flying) {
+		return null;
+	}
+
 	if (!active) {
 		return (
 			<div className={styles.driving}>
-				<button
-					className={styles.driving__driveButton}
-					onClick={(): void => actions.setDrivingEnabled(true)}
-				>
-					▶ Drive
-				</button>
+				<div className={styles.driving__modeButtons}>
+					<button
+						className={styles.driving__driveButton}
+						onClick={(): void => actions.setDrivingEnabled(true)}
+					>
+						▶ Drive
+					</button>
+					<button
+						className={styles.driving__driveButton}
+						onClick={(): void => actions.setFlightMode(true)}
+					>
+						✈ Fly
+					</button>
+				</div>
 			</div>
 		);
 	}
@@ -102,8 +117,8 @@ const DrivingPanel: React.FC = () => {
 					className={styles.driving__speed__slider}
 					type="range"
 					min={0}
-					max={SpeedSliderMax}
-					value={mphToSlider(maxSpeedMph)}
+					max={SpeedSliderSteps}
+					value={mphToSlider(maxSpeedMph, maxSpeedCapMph)}
 					onChange={onSpeedSliderChange}
 					aria-label="Maximum speed in miles per hour"
 				/>
@@ -111,12 +126,13 @@ const DrivingPanel: React.FC = () => {
 					className={styles.driving__speed__value}
 					type="number"
 					min={0}
-					max={SpeedLimitMph}
+					max={maxSpeedCapMph}
 					value={maxSpeedMph}
 					onChange={onMaxSpeedInput}
 					aria-label="Maximum speed, exact miles per hour"
 				/>
 				<span className={styles.driving__speed__unit}>mph</span>
+				<span className={styles.driving__speed__cap}>CAP {maxSpeedCapMph.toLocaleString()} mph</span>
 			</div>
 			<div className={styles.driving__controls}>
 				<button className={styles.driving__button} {...bindButton('left')}>◀<span>LEFT</span></button>

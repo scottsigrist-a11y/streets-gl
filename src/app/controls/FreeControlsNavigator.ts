@@ -9,6 +9,14 @@ import TerrainHeightProvider from "~/app/terrain/TerrainHeightProvider";
 export default class FreeControlsNavigator extends ControlsNavigator {
 	private readonly terrainHeightProvider: TerrainHeightProvider;
 	private readonly camera: PerspectiveCamera;
+	// Speed source (m/s), owned by ControlsSystem: the flight speed
+	// slider value, capped by the altitude-dependent speed cap. The
+	// navigator asks for it every frame so the cap follows the camera
+	// altitude live, including while descending.
+	private readonly getSpeedMps: (fast: boolean) => number;
+	// Speed the camera actually moved at this frame (0 when no movement
+	// key is held), published to the flight HUD.
+	public currentSpeedMps: number = 0;
 	private pitch: number = MathUtils.toRad(45);
 	private yaw: number = MathUtils.toRad(0);
 	private forwardKeyPressed: boolean = false;
@@ -25,12 +33,14 @@ export default class FreeControlsNavigator extends ControlsNavigator {
 	public constructor(
 		element: HTMLElement,
 		camera: PerspectiveCamera,
-		terrainHeightProvider: TerrainHeightProvider
+		terrainHeightProvider: TerrainHeightProvider,
+		getSpeedMps: (fast: boolean) => number
 	) {
 		super(element);
 
 		this.camera = camera;
 		this.terrainHeightProvider = terrainHeightProvider;
+		this.getSpeedMps = getSpeedMps;
 
 		this.addEventListeners();
 	}
@@ -220,7 +230,10 @@ export default class FreeControlsNavigator extends ControlsNavigator {
 		const mat = this.camera.matrixWorld.values;
 		const forwardDir = Vec3.normalize(new Vec3(mat[8], mat[9], mat[10]));
 		const rightDir = Vec3.normalize(new Vec3(mat[0], mat[1], mat[2]));
-		const speed = this.fastMovementKeyPressed ? Config.FreeCameraSpeedFast : Config.FreeCameraSpeed;
+		// Normal speed is the flight slider value (capped by altitude);
+		// holding Shift flies at the full altitude cap. Both follow the
+		// cap live, so descending clamps the speed at once.
+		const speed = this.getSpeedMps(this.fastMovementKeyPressed);
 
 		let movementDelta = new Vec3();
 		if (this.forwardKeyPressed) {
@@ -235,6 +248,10 @@ export default class FreeControlsNavigator extends ControlsNavigator {
 		if (this.rightKeyPressed) {
 			movementDelta = Vec3.add(movementDelta, Vec3.multiplyScalar(rightDir, deltaTime));
 		}
+
+		const moving = movementDelta.x !== 0 || movementDelta.y !== 0 || movementDelta.z !== 0;
+		this.currentSpeedMps = moving ? speed : 0;
+
 		movementDelta = Vec3.multiplyScalar(movementDelta, speed);
 
 		this.camera.position.x += movementDelta.x;

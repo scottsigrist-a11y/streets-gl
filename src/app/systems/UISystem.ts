@@ -11,7 +11,7 @@ import SettingsSystem from "~/app/systems/SettingsSystem";
 import SettingsStorageDecorator from "~/app/settings/SettingsStorageDecorator";
 import Utils from "~/app/Utils";
 import TileLoadingSystem, {OverpassEndpoint} from "~/app/systems/TileLoadingSystem";
-import UISystemState, {DrivingState} from "~/app/ui/UISystemState";
+import UISystemState, {DrivingState, FlightState} from "~/app/ui/UISystemState";
 import RenderGraphSnapshot from "~/app/ui/RenderGraphSnapshot";
 import UIActions from "~/app/ui/UIActions";
 import DrivingSystem from "~/app/systems/DrivingSystem";
@@ -36,7 +36,8 @@ export default class UISystem extends System {
 		settingsSchema: {},
 		overpassEndpoints: [],
 		dataTimestamp: null,
-		driving: null
+		driving: null,
+		flight: null
 	};
 	private fpsUpdateTimer = 0;
 
@@ -141,6 +142,12 @@ export default class UISystem extends System {
 				if (drivingSystem) {
 					drivingSystem.setMaxSpeedMph(mph);
 				}
+			},
+			setFlightMaxSpeedMph: (mph: number): void => {
+				this.systemManager.getSystem(ControlsSystem).setFlightMaxSpeedMph(mph);
+			},
+			setFlightMode: (enabled: boolean): void => {
+				this.systemManager.getSystem(ControlsSystem).setFreeModeEnabled(enabled);
 			}
 		}
 
@@ -154,6 +161,11 @@ export default class UISystem extends System {
 	// Live driving HUD state, published by DrivingSystem.
 	public setDrivingState(state: DrivingState): void {
 		this.ui.setStateFieldValue('driving', state);
+	}
+
+	// Live flight HUD state, published by ControlsSystem.
+	public setFlightState(state: FlightState): void {
+		this.ui.setStateFieldValue('flight', state);
 	}
 
 	public setResourceInProgressPath(path: string): void {

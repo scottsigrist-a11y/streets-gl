@@ -1,0 +1,116 @@
+@import "../../styles/common.scss";
+
+.flight {
+	position: absolute;
+	bottom: 16px;
+	left: 50%;
+	transform: translateX(-50%);
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 10px;
+	z-index: 10;
+	user-select: none;
+
+	&__speedo {
+		@extend %panel-bg;
+		@extend %panel-border;
+		@extend %panel-border-radius;
+		padding: 6px 18px;
+		text-align: center;
+
+		&__mph {
+			font-size: 34px;
+			font-weight: bold;
+			line-height: 1;
+		}
+
+		&__unit {
+			font-size: 12px;
+			letter-spacing: 2px;
+		}
+
+		&__sub {
+			font-size: 12px;
+			opacity: 0.8;
+		}
+	}
+
+	&__speed {
+		@extend %panel-bg;
+		@extend %panel-border;
+		@extend %panel-border-radius;
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		gap: 8px;
+		padding: 8px 12px;
+
+		&__label {
+			font-size: 11px;
+			letter-spacing: 1px;
+			white-space: nowrap;
+		}
+
+		&__slider {
+			width: 180px;
+			accent-color: #e05040;
+			cursor: pointer;
+		}
+
+		&__value {
+			width: 72px;
+			padding: 2px 4px;
+			font-size: 13px;
+			text-align: right;
+			background: transparent;
+			border: 1px solid rgba(128, 128, 128, 0.5);
+			border-radius: 4px;
+			color: inherit;
+		}
+
+		&__unit {
+			font-size: 12px;
+			opacity: 0.8;
+		}
+
+		&__cap {
+			font-size: 11px;
+			opacity: 0.7;
+			white-space: nowrap;
+		}
+	}
+
+	&__footer {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		gap: 12px;
+	}
+
+	&__stopButton {
+		@extend %panel-bg;
+		@extend %panel-border;
+		@extend %panel-border-radius;
+		padding: 6px 12px;
+		font-size: 13px;
+		cursor: pointer;
+	}
+
+	&__hint {
+		font-size: 12px;
+		opacity: 0.8;
+	}
+}
+
+@include themify($themes) {
+	.flight__speedo,
+	.flight__speed,
+	.flight__stopButton {
+		color: themed('text-color');
+	}
+
+	.flight__hint {
+		color: themed('text-color');
+	}
+}

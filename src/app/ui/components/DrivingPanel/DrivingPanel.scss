@@ -12,6 +12,12 @@
 	z-index: 10;
 	user-select: none;
 
+	&__modeButtons {
+		display: flex;
+		flex-direction: row;
+		gap: 10px;
+	}
+
 	&__driveButton {
 		@extend %panel-bg;
 		@extend %panel-border;
@@ -82,6 +88,12 @@
 		&__unit {
 			font-size: 12px;
 			opacity: 0.8;
+		}
+
+		&__cap {
+			font-size: 11px;
+			opacity: 0.7;
+			white-space: nowrap;
 		}
 	}
 

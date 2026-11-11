@@ -5,7 +5,14 @@ import TerrainSystem from "~/app/systems/TerrainSystem";
 import TileSystem from "~/app/systems/TileSystem";
 import VehicleSystem from "~/app/systems/VehicleSystem";
 import UISystem from "~/app/systems/UISystem";
+import SceneSystem from "~/app/systems/SceneSystem";
 import Car from "~/app/vehicles/car/Car";
+import {
+	capMphForAltitudeAgl,
+	MetersToFeet,
+	MphToMps,
+	MpsToMph
+} from "~/app/utils/AdaptiveSpeed";
 
 // Touch-button input from the driving HUD. Kept separate from the keyboard
 // flags so several buttons can be held at once (e.g. GAS + LEFT).
@@ -33,10 +40,10 @@ const FollowDistance = 9.7; // chase camera distance, meters
 const FollowPitchDeg = 21; // chase camera pitch, degrees
 const FollowTargetHeightOffset = 0.7; // look at the car's mid-height, meters
 const DefaultMaxSpeedMph = 70; // slider default, mph
-const MaxSpeedMphLimit = 10000; // slider maximum, mph
-const MphToMps = 0.44704; // exact: 1 mph in m/s
-const MpsToMph = 2.23694;
-const MetersToFeet = 3.28084;
+const GroundClearanceM = 0.05; // car sits this far above the terrain surface
+const DropFallSpeedMin = 60; // m/s, slowest the car falls while dropping in
+const DropFallSpeedMax = 600; // m/s, fastest the car falls while dropping in
+const DropJumpDownDistance = 250; // m above the landing spot the drop starts from
 const HudUpdateInterval = 0.1; // seconds between speedometer updates
 
 export default class DrivingSystem extends System {
@@ -60,14 +67,13 @@ export default class DrivingSystem extends System {
 	// which is what the physics clamps against.
 	private maxSpeedMph: number = DefaultMaxSpeedMph;
 	private maxForwardSpeedMps: number = DefaultMaxSpeedMph * MphToMps;
-	// Last terrain height that resolved successfully, anywhere. Used as a
-	// spawn fallback while the height tile for a new area is still loading.
-	private lastKnownHeight: number | null = null;
-	// True once the car has a trustworthy height (fresh query, a previous
-	// height, or the ground camera's target height). Until then the chase
-	// camera stays off: aiming it at an unresolved height of 0 would put
-	// it underground and blank the screen.
-	private spawnHeightResolved: boolean = false;
+	// Drop-in state (see placeCarAt): while the car is dropping, it
+	// hovers above the ground and cannot drive yet. dropTargetHeight is
+	// the validated terrain height it is falling toward, or null while
+	// the height tile for the spot has not loaded. landed is true once
+	// the car rests on the land.
+	private landed: boolean = false;
+	private dropTargetHeight: number | null = null;
 
 	public postInit(): void {
 		// Hand the car to the vehicle pipeline so the render passes pick it
@@ -99,7 +105,6 @@ export default class DrivingSystem extends System {
 			// Switch to the ground camera first, then drop the car and aim
 			// the camera at it (placeCarAt syncs the ground navigator).
 			controls.setDrivingMode(true);
-			this.spawnHeightResolved = false;
 			this.placeCarAt(lat, lon);
 			this.smoothedYaw = this.car.heading;
 
@@ -110,6 +115,8 @@ export default class DrivingSystem extends System {
 			this.driving = false;
 			this.car.visible = false;
 			this.car.speed = 0;
+			this.landed = false;
+			this.dropTargetHeight = null;
 			this.clearInputFlags();
 			controls.setDrivingMode(false);
 			controls.clearDrivingCamera();
@@ -120,67 +127,67 @@ export default class DrivingSystem extends System {
 				speedKmh: 0,
 				headingDeg: 0,
 				maxSpeedMph: this.maxSpeedMph,
+				maxSpeedCapMph: this.getAdaptiveCapMph(),
 				altitudeFt: 0,
 				dataLoadedPct: null
 			});
 		}
 	}
 
-	// The HUD speed slider: the car's maximum speed in mph (0–10,000).
+	// The adaptive speed cap at the car's current height above ground.
+	// The car sits on the land, so this is the 100 mph ground cap; it is
+	// computed from the live altitude anyway so the HUD never disagrees
+	// with the shared cap rule.
+	private getAdaptiveCapMph(): number {
+		const groundHeight = this.systemManager.getSystem(TerrainSystem)
+			.terrainHeightProvider.getHeightGlobalInterpolated(this.car.x, this.car.z, true);
+
+		const agl = groundHeight !== null && Number.isFinite(groundHeight)
+			? Math.max(this.car.height - groundHeight, 0)
+			: 0;
+
+		return capMphForAltitudeAgl(agl);
+	}
+
+	// The HUD speed slider: the car's maximum speed in mph. At ground
+	// level the adaptive cap is 100 mph, so the drive slider tops out
+	// there; the 10,000 mph top is for high altitude in flight mode.
 	// Gas accelerates toward it; the physics clamp uses the m/s value.
 	public setMaxSpeedMph(mph: number): void {
-		this.maxSpeedMph = MathUtils.clamp(Math.round(mph), 0, MaxSpeedMphLimit);
+		this.maxSpeedMph = MathUtils.clamp(Math.round(mph), 0, this.getAdaptiveCapMph());
 		this.maxForwardSpeedMps = this.maxSpeedMph * MphToMps;
 		this.publishHud(1);
 	}
 
-	// Best terrain height for a spawn point, with fallbacks for when the
-	// height tile has not loaded yet (the query returns null then).
-	// Returns null only when no height is known anywhere; the caller must
-	// not aim the camera at 0 in that case.
-	private resolveSpawnHeight(x: number, z: number, controls: ControlsSystem): number | null {
-		const height = this.systemManager.getSystem(TerrainSystem)
-			.terrainHeightProvider.getHeightGlobalInterpolated(x, z, true);
-
-		if (height !== null && Number.isFinite(height)) {
-			this.lastKnownHeight = height;
-			this.spawnHeightResolved = true;
-			return height;
-		}
-
-		// A height from anywhere nearby beats 0: the per-frame physics
-		// query corrects the car as soon as the tile for this spot loads.
-		if (this.lastKnownHeight !== null) {
-			this.spawnHeightResolved = true;
-			return this.lastKnownHeight;
-		}
-
-		// In ground mode the camera target height is maintained by the
-		// heightmap, so it is exact for the area on screen.
-		if (controls.mode === NavigationMode.Ground) {
-			const targetHeight = controls.getGroundControlsTarget().y;
-
-			if (Number.isFinite(targetHeight)) {
-				this.spawnHeightResolved = true;
-				return targetHeight;
-			}
-		}
-
-		return null;
-	}
-
-	// Move the car to a latitude/longitude (used when the user searches for
-	// an address while driving). The chase camera is re-aimed at the new
-	// spot so the jump is immediate instead of a long swing.
+	// Move the car to a latitude/longitude (used when driving starts and
+	// when the user searches for an address while driving). The car is
+	// dropped vertically onto the land: if the terrain height at the spot
+	// is known, it lands on it at once; if the height tile has not loaded
+	// yet, the car holds high above the ground — at the camera's height,
+	// which is above the terrain by construction in every navigation
+	// mode — and drops onto the surface the moment a valid height
+	// resolves (see updateDrop). It is never placed at height 0 or at a
+	// stale estimate from somewhere else, so it can never end up under
+	// the terrain. The chase camera is re-aimed at the new spot so the
+	// jump is immediate instead of a long swing.
 	public placeCarAt(lat: number, lon: number): void {
 		const position = MathUtils.degrees2meters(lat, lon);
 		this.car.x = position.x;
 		this.car.z = position.y;
 
-		const height = this.resolveSpawnHeight(this.car.x, this.car.z, this.systemManager.getSystem(ControlsSystem));
+		const height = this.queryGroundHeight(this.car.x, this.car.z);
 
 		if (height !== null) {
-			this.car.height = height + 0.05;
+			this.car.height = height + GroundClearanceM;
+			this.landed = true;
+			this.dropTargetHeight = null;
+		} else {
+			// Hold above the ground and wait: the camera sits above the
+			// terrain in every mode, so its height is a safe hold.
+			const camera = this.systemManager.getSystem(SceneSystem).objects.camera;
+			this.car.height = camera.position.y + 20;
+			this.landed = false;
+			this.dropTargetHeight = null;
 		}
 
 		this.smoothedYaw = this.car.heading;
@@ -197,6 +204,21 @@ export default class DrivingSystem extends System {
 		// update runs before this system's update each frame, and without
 		// this the first frame would still use the stale target height.
 		this.updateFollowCamera(0);
+	}
+
+	// Terrain height at a spot, or null when the height tile has not
+	// loaded yet (or the value is not a real height). Null means "not
+	// known", never "sea level": callers must hold above the ground
+	// instead of trusting it.
+	private queryGroundHeight(x: number, z: number): number | null {
+		const height = this.systemManager.getSystem(TerrainSystem)
+			.terrainHeightProvider.getHeightGlobalInterpolated(x, z, true);
+
+		if (height !== null && Number.isFinite(height)) {
+			return height;
+		}
+
+		return null;
 	}
 
 	public setTouchButton(button: keyof DrivingTouchInput, pressed: boolean): void {
@@ -310,6 +332,14 @@ export default class DrivingSystem extends System {
 	}
 
 	private updatePhysics(deltaTime: number): void {
+		// Until the car has landed on the terrain it cannot drive: it is
+		// either holding above the ground waiting for a valid height, or
+		// falling toward the landing spot. See updateDrop.
+		if (!this.landed) {
+			this.updateDrop(deltaTime);
+			return;
+		}
+
 		const gas = this.gasKeyPressed || this.touchInput.gas;
 		const reverse = this.reverseKeyPressed || this.touchInput.reverse;
 		const brake = this.brakeKeyPressed || this.touchInput.brake;
@@ -340,7 +370,10 @@ export default class DrivingSystem extends System {
 			}
 		}
 
-		// Drag + rolling resistance, then clamp.
+		// Drag + rolling resistance, then clamp to the effective maximum:
+		// the HUD slider value, further limited by the adaptive altitude
+		// cap (100 mph on the ground). A car descending from a drop-in
+		// can never stay faster than the cap for its altitude.
 		speed -= speed * DragCoefficient * deltaTime;
 
 		if (!gas && !reverse) {
@@ -351,7 +384,8 @@ export default class DrivingSystem extends System {
 			}
 		}
 
-		speed = MathUtils.clamp(speed, -MaxReverseSpeed, this.maxForwardSpeedMps);
+		const effectiveMaxMps = Math.min(this.maxForwardSpeedMps, this.getAdaptiveCapMph() * MphToMps);
+		speed = MathUtils.clamp(speed, -MaxReverseSpeed, effectiveMaxMps);
 
 		if (Math.abs(speed) < 0.05 && !gas && !reverse) {
 			speed = 0;
@@ -369,26 +403,67 @@ export default class DrivingSystem extends System {
 		this.car.x += Math.cos(this.car.heading) * speed * deltaTime;
 		this.car.z += Math.sin(this.car.heading) * speed * deltaTime;
 
-		// Stick to the terrain; keep the last height if it is not loaded yet.
-		const height = this.systemManager.getSystem(TerrainSystem)
-			.terrainHeightProvider.getHeightGlobalInterpolated(this.car.x, this.car.z, true);
+		// Stick to the terrain; keep the current height if the tile for
+		// this spot has not loaded yet, so the car never drops to 0.
+		const height = this.queryGroundHeight(this.car.x, this.car.z);
 
-		if (height !== null && Number.isFinite(height)) {
-			this.car.height = height + 0.05;
-			this.lastKnownHeight = height;
-			this.spawnHeightResolved = true;
+		if (height !== null) {
+			this.car.height = height + GroundClearanceM;
+		}
+	}
+
+	// Drop the car vertically onto the terrain surface. While the height
+	// tile for the spot has not loaded, the car holds where it is (high
+	// above the ground) and waits. Once a valid height resolves, the car
+	// falls straight down until it rests on the land. It is never lowered
+	// toward an unvalidated height, so it can never end up under the
+	// terrain — and the chase camera, which follows the car's height,
+	// can never end up underground either.
+	private updateDrop(deltaTime: number): void {
+		const height = this.queryGroundHeight(this.car.x, this.car.z);
+
+		if (height === null) {
+			return;
+		}
+
+		const target = height + GroundClearanceM;
+		this.dropTargetHeight = target;
+
+		// A very long fall is shortened: jump to 250 m above the landing
+		// spot, then fall the rest visibly instead of dropping for many
+		// seconds from a high camera.
+		if (this.car.height - target > DropJumpDownDistance) {
+			this.car.height = target + DropJumpDownDistance;
+		}
+
+		const remaining = this.car.height - target;
+
+		if (remaining <= 0.01) {
+			this.car.height = target;
+			this.landed = true;
+			this.dropTargetHeight = null;
+			return;
+		}
+
+		// Fall fast, easing off as the ground approaches so the car
+		// settles onto the land instead of slamming into it.
+		const fallSpeed = MathUtils.clamp(remaining * 3, DropFallSpeedMin, DropFallSpeedMax);
+		this.car.height = Math.max(target, this.car.height - fallSpeed * deltaTime);
+
+		if (this.car.height <= target) {
+			this.car.height = target;
+			this.landed = true;
+			this.dropTargetHeight = null;
 		}
 	}
 
 	private updateFollowCamera(deltaTime: number): void {
-		// Until the car has a trustworthy height, leave the camera where
-		// it is: aiming the chase camera at an unresolved height of 0
-		// would put it underground and blank the screen. The physics
-		// query above resolves the height as soon as its tile loads.
-		if (!this.spawnHeightResolved) {
-			return;
-		}
-
+		// The camera always aims at the car's current height: the car is
+		// either resting on a validated terrain height or holding high
+		// above the ground while its height tile loads, so the look point
+		// is never underground and the camera can never end up under the
+		// terrain. No gate is needed (and a gate on a stale height was
+		// what used to blank the screen).
 		// Ease the chase yaw behind the car instead of snapping to it.
 		const alpha = 1 - Math.pow(1 - 0.25, deltaTime / (1 / 60));
 		this.smoothedYaw = MathUtils.lerpAngle(this.smoothedYaw, this.car.heading, alpha);
@@ -418,6 +493,7 @@ export default class DrivingSystem extends System {
 			speedKmh: Math.abs(this.car.speed) * 3.6,
 			headingDeg: MathUtils.toDeg(this.car.heading),
 			maxSpeedMph: this.maxSpeedMph,
+			maxSpeedCapMph: this.getAdaptiveCapMph(),
 			altitudeFt: Math.round(this.car.height * MetersToFeet),
 			dataLoadedPct: this.computeDataLoadedPct()
 		});

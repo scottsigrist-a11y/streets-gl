@@ -14,4 +14,6 @@ export default interface UIActions {
 	setDrivingEnabled: (enabled: boolean) => void;
 	setDrivingTouchButton: (button: keyof DrivingTouchInput, pressed: boolean) => void;
 	setDrivingMaxSpeedMph: (mph: number) => void;
+	setFlightMaxSpeedMph: (mph: number) => void;
+	setFlightMode: (enabled: boolean) => void;
 }
