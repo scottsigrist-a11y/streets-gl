@@ -61,7 +61,7 @@ const FlightPanel: React.FC = () => {
 				</div>
 				<div className={styles.flight__speedo__sub}>
 					ALT {altitudeFt.toLocaleString()} ft AGL
-					{dataLoadedPct !== null && dataLoadedPct < 100 ? ` · DATA ${dataLoadedPct}%` : ''}
+					{dataLoadedPct !== null ? ` · DATA ${dataLoadedPct}%` : ''}
 				</div>
 			</div>
 			<div className={styles.flight__speed}>
@@ -97,7 +97,7 @@ const FlightPanel: React.FC = () => {
 				>
 					✕ Stop flying
 				</button>
-				<span className={styles.flight__hint}>Tab to return to ground · W A S D to fly · Shift = full speed · Q E turn · R F pitch</span>
+				<span className={styles.flight__hint}>Tab to return to ground · W A S D to fly · Shift = full speed · Q E turn · R F pitch · + / − max speed</span>
 			</div>
 		</div>
 	);

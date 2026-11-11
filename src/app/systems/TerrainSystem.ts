@@ -22,46 +22,23 @@ export interface TerrainAreaLoaders {
 	height1: TileAreaLoader<HeightTileSource>;
 }
 
-// Adaptive terrain detail, by camera height above ground (AGL):
-// the closer the camera gets to the ground, the finer the terrain.
-// 'max' (near the ground) uses the densest mesh the height data can
-// feed and the finer height zoom; 'base' (far above) is the original
-// detail. The mesh is the binding constraint — the innermost ring is
-// ~4,892 m across, so 256 segments puts a vertex every ~19 m, matching
-// the zoom-12 height texels (~19 m); the zoom-13 height data (~9.5 m)
-// mainly sharpens the slope shading (normals) beyond that. Thresholds
-// have separate enter/leave altitudes (hysteresis) so hovering near a
-// boundary does not rebuild meshes every frame.
-type TerrainDetailTier = 'max' | 'mid' | 'base';
-
-const TerrainDetailTiers: Record<TerrainDetailTier, {segments: number[]; heightZoom: number}> = {
-	max: {segments: [256, 128, 64, 64, 64, 64], heightZoom: 13},
-	mid: {segments: [128, 64, 64, 64, 64, 64], heightZoom: 12},
-	base: {segments: [64, 64, 64, 64, 64, 64], heightZoom: 12}
-};
-
-const MaxDetailEnterAglM = 500; // below this AGL, switch to max detail
-const MaxDetailLeaveAglM = 900; // above this AGL, leave max detail
-const BaseDetailEnterAglM = 4500; // above this AGL, switch to base detail
-const BaseDetailLeaveAglM = 3000; // below this AGL, leave base detail
+// Terrain detail is one uniform segment count for every ring (see
+// Config.TerrainRingSegmentCount): the ring-height texture is a single
+// fixed-size array, and the ring-height pass and the terrain vertex
+// shader both assume its size equals segmentCount * 2. Per-ring counts
+// broke that assumption — the near ring read out-of-range texels and
+// the ground collapsed to sea level in drive mode — and swapping the
+// near height layer to zoom 13 starved the car-height provider, which
+// only reads zoom 12, so the car could never land. The near height
+// layer therefore stays at zoom 12 permanently: the mesh and the
+// car-height provider always read the same data, and the height is
+// always there to drop onto.
 
 export default class TerrainSystem extends System {
 	public maskOrigin: Vec2 = new Vec2();
-	// Mutable (not Readonly): the adaptive detail system swaps height0
-	// for a loader at another zoom when the camera gets close to the
-	// ground. Readers (the texture pass) always read it fresh.
 	public areaLoaders: TerrainAreaLoaders;
 	public readonly terrainHeightProvider: TerrainHeightProvider = new TerrainHeightProvider(12, 13);
 	private loadTerrainHeight: boolean = true;
-	private detailTier: TerrainDetailTier = 'base';
-	private lastKnownAgl: number | null = null;
-	// Height loader prefetching the other zoom while the camera is near
-	// a tier boundary. It is only swapped in once its viewport is
-	// (nearly) full, so the ground never goes flat mid-stream — and the
-	// finest tiles are never fetched while the camera is far above the
-	// ground, because prefetching only starts when the tier wants them.
-	private pendingHeightLoader: TileAreaLoader<HeightTileSource> | null = null;
-	private pendingHeightZoom: number = 0;
 
 	public postInit(): void {
 		this.createAreaLoaders();
@@ -131,99 +108,6 @@ export default class TerrainSystem extends System {
 			this.updateRingPositions(terrain, camera);
 			this.updateRingAreaTransforms(terrain);
 			this.updateRingMaskTransforms(terrain, camera);
-			this.updateDetailTier(camera);
-		}
-	}
-
-	// Camera height above the ground (m), or null when the terrain
-	// height under the camera has not resolved yet (falls back to the
-	// last resolved value so the tier does not flap on a null query).
-	private getCameraAgl(camera: Object3D): number | null {
-		const height = this.terrainHeightProvider.getHeightGlobalInterpolated(camera.position.x, camera.position.z, true);
-
-		if (height !== null && Number.isFinite(height)) {
-			this.lastKnownAgl = Math.max(camera.position.y - height, 0);
-		}
-
-		return this.lastKnownAgl;
-	}
-
-	// Pick the detail tier from the camera altitude, with hysteresis,
-	// and apply it: rebuild the ring meshes at the tier's density and
-	// start prefetching the tier's height zoom.
-	private updateDetailTier(camera: Object3D): void {
-		const agl = this.getCameraAgl(camera);
-
-		if (agl === null) {
-			return;
-		}
-
-		let tier = this.detailTier;
-
-		if (tier !== 'max' && agl < MaxDetailEnterAglM) {
-			tier = 'max';
-		} else if (tier === 'max' && agl > MaxDetailLeaveAglM) {
-			tier = 'mid';
-		} else if (tier !== 'base' && agl > BaseDetailEnterAglM) {
-			tier = 'base';
-		} else if (tier === 'base' && agl < BaseDetailLeaveAglM) {
-			tier = 'mid';
-		}
-
-		if (tier !== this.detailTier) {
-			this.detailTier = tier;
-			const terrain = this.systemManager.getSystem(SceneSystem).objects.terrain;
-			terrain.setRingDetail(TerrainDetailTiers[tier].segments);
-		}
-
-		this.updateHeightDetail(tier, camera);
-	}
-
-	// Move the near height layer to the tier's zoom. The new loader is
-	// built and prefetched in the background and only swapped in once
-	// its viewport is (nearly) full, so the ground never goes flat while
-	// the new zoom streams in; a single failed tile must not block the
-	// swap forever, hence 90% instead of 100%. While the camera is far
-	// above the ground the tier wants zoom 12, so the finer zoom-13
-	// tiles are never requested up there.
-	private updateHeightDetail(tier: TerrainDetailTier, camera: Object3D): void {
-		const desiredZoom = TerrainDetailTiers[tier].heightZoom;
-
-		if (desiredZoom === this.areaLoaders.height0.zoom) {
-			if (this.pendingHeightLoader) {
-				this.pendingHeightLoader.dispose();
-				this.pendingHeightLoader = null;
-			}
-
-			return;
-		}
-
-		if (!this.pendingHeightLoader || this.pendingHeightZoom !== desiredZoom) {
-			if (this.pendingHeightLoader) {
-				this.pendingHeightLoader.dispose();
-			}
-
-			this.pendingHeightZoom = desiredZoom;
-			this.pendingHeightLoader = new TileAreaLoader({
-				sourceFactory: new HeightReusedTileSourceFactory(this.terrainHeightProvider, 0),
-				zoom: desiredZoom,
-				maxStoredTiles: 100,
-				viewportSize: 4,
-				bufferSize: 1,
-				maxConcurrentRequests: 4
-			});
-		}
-
-		const cameraPosition2D = new Vec2(camera.position.x, camera.position.z);
-		this.pendingHeightLoader.update(cameraPosition2D);
-
-		const progress = this.pendingHeightLoader.getLoadProgress();
-
-		if (progress.total > 0 && progress.loaded / progress.total >= 0.9) {
-			const oldLoader = this.areaLoaders.height0;
-			this.areaLoaders.height0 = this.pendingHeightLoader;
-			this.pendingHeightLoader = null;
-			oldLoader.dispose();
 		}
 	}
 

@@ -105,7 +105,7 @@ const DrivingPanel: React.FC = () => {
 				</div>
 				<div className={styles.driving__speedo__sub}>
 					ALT {altitudeFt.toLocaleString()} ft
-					{dataLoadedPct !== null && dataLoadedPct < 100 ? ` · DATA ${dataLoadedPct}%` : ''}
+					{dataLoadedPct !== null ? ` · DATA ${dataLoadedPct}%` : ''}
 				</div>
 			</div>
 			<div className={styles.driving__speed}>

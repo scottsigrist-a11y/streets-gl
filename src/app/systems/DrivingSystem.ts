@@ -41,7 +41,8 @@ const FollowPitchDeg = 21; // chase camera pitch, degrees
 const FollowTargetHeightOffset = 0.7; // look at the car's mid-height, meters
 const DefaultMaxSpeedMph = 70; // slider default, mph
 const GroundClearanceM = 0.05; // car sits this far above the terrain surface
-const DropFallSpeedMin = 60; // m/s, slowest the car falls while dropping in
+const DropSpawnHeightM = 1.5; // spawn this far (~5 ft) above the ground, then drop onto it
+const DropFallSpeedMin = 2; // m/s, slowest the car falls while dropping in
 const DropFallSpeedMax = 600; // m/s, fastest the car falls while dropping in
 const DropJumpDownDistance = 250; // m above the landing spot the drop starts from
 const HudUpdateInterval = 0.1; // seconds between speedometer updates
@@ -160,16 +161,21 @@ export default class DrivingSystem extends System {
 	}
 
 	// Move the car to a latitude/longitude (used when driving starts and
-	// when the user searches for an address while driving). The car is
-	// dropped vertically onto the land: if the terrain height at the spot
-	// is known, it lands on it at once; if the height tile has not loaded
-	// yet, the car holds high above the ground — at the camera's height,
-	// which is above the terrain by construction in every navigation
-	// mode — and drops onto the surface the moment a valid height
-	// resolves (see updateDrop). It is never placed at height 0 or at a
-	// stale estimate from somewhere else, so it can never end up under
-	// the terrain. The chase camera is re-aimed at the new spot so the
-	// jump is immediate instead of a long swing.
+	// when the user searches for an address while driving). The ground
+	// altitude at the spot is read through the terrain height system
+	// (zoom 12, the same data the rendered mesh uses — the near height
+	// layer never leaves zoom 12, so the height is always there once
+	// its tile loads and the mesh and the car can never disagree about
+	// where the ground is). The car then spawns a few feet above that
+	// altitude and drops vertically onto the surface (see updateDrop),
+	// so it rests on the land instead of starting under it. If the
+	// height tile has not loaded yet, the car holds high above the
+	// ground — at the camera's height, which is above the terrain by
+	// construction in every navigation mode — and drops onto the surface
+	// the moment a valid height resolves. It is never placed at height
+	// 0 or at a stale estimate from somewhere else, so it can never end
+	// up under the terrain. The chase camera is re-aimed at the new
+	// spot so the jump is immediate instead of a long swing.
 	public placeCarAt(lat: number, lon: number): void {
 		const position = MathUtils.degrees2meters(lat, lon);
 		this.car.x = position.x;
@@ -178,9 +184,11 @@ export default class DrivingSystem extends System {
 		const height = this.queryGroundHeight(this.car.x, this.car.z);
 
 		if (height !== null) {
-			this.car.height = height + GroundClearanceM;
-			this.landed = true;
-			this.dropTargetHeight = null;
+			// A few feet above the ground, then drop onto it: the car
+			// lands on the surface it was measured against.
+			this.car.height = height + DropSpawnHeightM;
+			this.landed = false;
+			this.dropTargetHeight = height + GroundClearanceM;
 		} else {
 			// Hold above the ground and wait: the camera sits above the
 			// terrain in every mode, so its height is a safe hold.
@@ -415,10 +423,13 @@ export default class DrivingSystem extends System {
 	// Drop the car vertically onto the terrain surface. While the height
 	// tile for the spot has not loaded, the car holds where it is (high
 	// above the ground) and waits. Once a valid height resolves, the car
-	// falls straight down until it rests on the land. It is never lowered
-	// toward an unvalidated height, so it can never end up under the
-	// terrain — and the chase camera, which follows the car's height,
-	// can never end up underground either.
+	// falls straight down until it rests on the land — a few feet when
+	// it spawned just above the surface, further when it held high
+	// waiting for the tile. It is never lowered toward an unvalidated
+	// height, so it can never end up under the terrain — and the chase
+	// camera, which follows the car's height, can never end up
+	// underground either. The fall eases off as the ground approaches
+	// so the car settles onto the land instead of slamming into it.
 	private updateDrop(deltaTime: number): void {
 		const height = this.queryGroundHeight(this.car.x, this.car.z);
 

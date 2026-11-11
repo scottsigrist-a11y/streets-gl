@@ -33,7 +33,16 @@ const Config = {
 	CSMShadowCameraNear: 1,
 	CSMShadowCameraFar: 20000,
 	TerrainRingCount: 6,
-	TerrainRingSegmentCount: 64,
+	// One uniform segment count for every ring. The ring-height texture
+	// (TerrainRingHeight) is a single fixed-size array sized from this
+	// value, and both the ring-height pass and the terrain vertex shader
+	// assume the target size equals segmentCount * 2: per-ring counts
+	// break that assumption (the near ring reads out-of-range texels and
+	// the ground collapses to sea level), so detail is raised here for
+	// all rings at once instead of per ring. 128 puts a vertex every
+	// ~38 m on the innermost ring (was ~76 m at 64) — twice the terrain
+	// detail, still coarser than the zoom-12 height texels (~19 m).
+	TerrainRingSegmentCount: 128,
 	TerrainRingSizeZoom: 13,
 	TerrainRingSize: 40075016.68 / (1 << 13),
 	TerrainMaskResolution: 32,

@@ -24,6 +24,11 @@ import {
 const WheelZoomFactor = 6;
 const FlightHudUpdateInterval = 0.1; // seconds between flight HUD updates
 const DefaultFlightMaxSpeedMph = 100; // flight slider default, mph
+// Flight-mode max-speed keys (+/= and -): a multiplicative step suits
+// the 100–10,000 mph range, with a small additive floor so the keys
+// can climb out of 0 mph.
+const FlightMaxSpeedKeyStep = 1.25;
+const FlightMaxSpeedKeyFloorMph = 5;
 
 export interface ControlsState {
 	x: number;
@@ -298,6 +303,27 @@ export default class ControlsSystem extends System {
 		}
 	}
 
+	// Raise or lower the flight maximum speed by a multiplicative
+	// factor, with a small additive floor so it can climb out of 0.
+	// setFlightMaxSpeedMph clamps the result to the live altitude cap,
+	// so the adaptive cap still applies, and republishes the HUD.
+	private adjustFlightMaxSpeedMph(factor: number): void {
+		const current = this.flightMaxSpeedMph;
+		const next = factor > 1
+			? Math.max(Math.round(current * factor), current + FlightMaxSpeedKeyFloorMph)
+			: Math.min(Math.round(current * factor), current - FlightMaxSpeedKeyFloorMph);
+
+		this.setFlightMaxSpeedMph(next);
+	}
+
+	private get isInFocus(): boolean {
+		return !(
+			document.activeElement instanceof HTMLInputElement
+			|| document.activeElement instanceof HTMLTextAreaElement
+			|| document.activeElement.attributes.getNamedItem('contenteditable') !== null
+		);
+	}
+
 	private keyDownEvent(e: KeyboardEvent): void {
 		if (this.drivingMode) {
 			return;
@@ -318,6 +344,22 @@ export default class ControlsSystem extends System {
 				this.groundNavigator.disable();
 				this.freeNavigator.enable();
 				this.freeNavigator.syncWithCamera(this.groundNavigator);
+			}
+		}
+
+		// Flight-mode max-speed keys: +/= raises, - lowers the flight
+		// maximum speed (the slider stays, and the adaptive altitude cap
+		// still applies). Holding the key repeats it. Gated on free-fly
+		// mode and on not typing in an input, so the keys never fire
+		// while driving or while editing the exact-value box.
+		// Equal/Minus are free: flight uses W A S D, Q E, R F, Shift.
+		if (this.mode === NavigationMode.Free && this.isInFocus) {
+			if (e.code === 'Equal' || e.code === 'NumpadAdd') {
+				this.adjustFlightMaxSpeedMph(FlightMaxSpeedKeyStep);
+				e.preventDefault();
+			} else if (e.code === 'Minus' || e.code === 'NumpadSubtract') {
+				this.adjustFlightMaxSpeedMph(1 / FlightMaxSpeedKeyStep);
+				e.preventDefault();
 			}
 		}
 	}

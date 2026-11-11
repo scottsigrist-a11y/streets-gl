@@ -7,6 +7,11 @@ import Vec2 from "~/lib/math/Vec2";
 export default class Terrain extends Object3D {
 	public override children: TerrainRing[];
 
+	// All rings share one segment count (Config.TerrainRingSegmentCount):
+	// the ring-height texture is a single fixed-size array and the
+	// ring-height pass assumes its size equals segmentCount * 2, so
+	// per-ring counts corrupt the mesh. Detail is raised by raising the
+	// shared count in Config instead.
 	public constructor() {
 		super();
 
@@ -19,26 +24,6 @@ export default class Terrain extends Object3D {
 
 			this.add(ring);
 		}
-	}
-
-	// Set the mesh density of every ring (adaptive terrain detail).
-	// counts[i] is the segment count of ring i; rings after the first
-	// keep a hole half their size, as in the constructor. Returns true
-	// when any ring actually rebuilt.
-	public setRingDetail(counts: number[]): boolean {
-		let changed = false;
-
-		for (let i = 0; i < this.children.length; i++) {
-			const ring = this.children[i];
-			const segmentCount = counts[i] ?? Config.TerrainRingSegmentCount;
-			const holeSegmentCount = i === 0 ? 0 : segmentCount / 2;
-
-			if (ring.rebuildDetail(segmentCount, holeSegmentCount)) {
-				changed = true;
-			}
-		}
-
-		return changed;
 	}
 
 	public getTileParams(tile: Tile): {

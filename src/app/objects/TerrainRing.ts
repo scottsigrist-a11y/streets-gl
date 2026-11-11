@@ -28,28 +28,6 @@ export default class TerrainRing extends RenderableObject3D {
 		return this.mesh !== null;
 	}
 
-	// Rebuild the ring mesh at a new segment density (adaptive terrain
-	// detail: denser near the ground, coarser far away). The old GPU
-	// mesh is deleted and nulled, so SceneSystem recreates it on the
-	// next frame (getObjectsToUpdateMesh walks the scene for rings that
-	// are not mesh-ready). Returns false when the density is unchanged,
-	// so a tier flip does not rebuild meshes that already match.
-	public rebuildDetail(segmentCount: number, holeSegmentCount: number): boolean {
-		if (segmentCount === this.segmentCount && holeSegmentCount === this.holeSegmentCount) {
-			return false;
-		}
-
-		this.segmentCount = segmentCount;
-		this.holeSegmentCount = holeSegmentCount;
-
-		if (this.mesh) {
-			this.mesh.delete();
-			this.mesh = null;
-		}
-
-		return true;
-	}
-
 	public updateMesh(renderer: AbstractRenderer): void {
 		if (!this.mesh) {
 			const buffers = this.getBuffers();
