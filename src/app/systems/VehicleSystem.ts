@@ -11,6 +11,7 @@ import Aircraft, {
 	AircraftPosition,
 	AircraftType
 } from "~/app/vehicles/aircraft/Aircraft";
+import Car from "~/app/vehicles/car/Car";
 
 interface QueryAircraft {
 	id: string;
@@ -53,6 +54,10 @@ const AircraftRollbackTime = 20000;
 
 export default class VehicleSystem extends System {
 	public readonly aircraftMap: Map<string, Aircraft> = new Map();
+	// The drivable car (set by DrivingSystem). Its parts are merged into
+	// the same per-type instance buffers as the aircraft, so the render
+	// passes draw it with no further changes.
+	public car: Car = null;
 	private lastUpdateTimestamp: number = 0;
 	private serverTimeOffset: number = null;
 	private enabled: boolean = false;
@@ -107,6 +112,17 @@ export default class VehicleSystem extends System {
 			const parts = aircraft.getParts();
 
 			for (const part of parts) {
+				if (!combinedParts.get(part.type)) {
+					combinedParts.set(part.type, []);
+				}
+
+				combinedParts.get(part.type).push(part);
+			}
+		}
+
+		// The driving car renders through this same pipeline.
+		if (this.car) {
+			for (const part of this.car.getParts()) {
 				if (!combinedParts.get(part.type)) {
 					combinedParts.set(part.type, []);
 				}

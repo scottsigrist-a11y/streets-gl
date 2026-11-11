@@ -32,6 +32,9 @@ export enum NavigationMode {
 export default class ControlsSystem extends System {
 	private readonly element: HTMLElement;
 	public mode: NavigationMode = NavigationMode.Ground;
+	// True while the car is being driven: the ground camera is a chase
+	// camera then, and navigator switching (Tab) is suspended.
+	public drivingMode: boolean = false;
 	private camera: PerspectiveCamera;
 	private tick: number = 0;
 	public target: Vec3 = new Vec3();
@@ -64,6 +67,36 @@ export default class ControlsSystem extends System {
 		if (this.activeNavigator) {
 			this.activeNavigator.lookAtNorth();
 		}
+	}
+
+	// Driving mode: hand camera input to DrivingSystem (the ground
+	// navigator stops listening to WASD/mouse) and let DrivingSystem
+	// position the ground camera as a chase camera following the car.
+	// Driving always uses the ground camera, so if the user was in free
+	// or slippy mode we switch to it first (without the slippy transition:
+	// DrivingSystem aims the camera at the car right after this).
+	public setDrivingMode(enabled: boolean): void {
+		this.drivingMode = enabled;
+
+		if (enabled) {
+			if (this.activeNavigator !== this.groundNavigator) {
+				this.slippyNavigator.disable();
+				this.freeNavigator.disable();
+				this.groundNavigator.enable();
+				this.activeNavigator = this.groundNavigator;
+				this.mode = NavigationMode.Ground;
+			}
+
+			this.groundNavigator.resetKeys();
+			this.groundNavigator.disable();
+		} else {
+			this.groundNavigator.enable();
+		}
+	}
+
+	// Called every frame while driving: point the ground camera at the car.
+	public setDrivingCamera(x: number, z: number, yaw: number, pitch: number, distance: number): void {
+		this.groundNavigator.setFollowCamera(x, z, yaw, pitch, distance);
 	}
 
 	private initCameraAndNavigators(): void {
@@ -163,6 +196,10 @@ export default class ControlsSystem extends System {
 	}
 
 	private keyDownEvent(e: KeyboardEvent): void {
+		if (this.drivingMode) {
+			return;
+		}
+
 		if (e.code === 'Tab') {
 			e.preventDefault();
 

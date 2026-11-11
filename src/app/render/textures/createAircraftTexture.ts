@@ -13,14 +13,16 @@ export const AircraftPartTextures: Record<AircraftPartType, number> = {
 	[AircraftPartType.HelicopterRotorStatic]: 5,
 	[AircraftPartType.HelicopterTailRotorStatic]: 5,
 	[AircraftPartType.HelicopterRotorSpinning]: 5,
-	[AircraftPartType.HelicopterTailRotorSpinning]: 5
+	[AircraftPartType.HelicopterTailRotorSpinning]: 5,
+	[AircraftPartType.CarBody]: 6,
+	[AircraftPartType.CarCabin]: 7
 };
 
 export default function createAircraftTexture(renderer: AbstractRenderer): AbstractTexture2DArray {
 	return renderer.createTexture2DArray({
 		width: 512,
 		height: 512,
-		depth: 6 * 2,
+		depth: 8 * 2,
 		anisotropy: 16,
 		data: [
 			ResourceLoader.get('aircraftB777Diffuse'),
@@ -40,6 +42,13 @@ export default function createAircraftTexture(renderer: AbstractRenderer): Abstr
 
 			ResourceLoader.get('aircraftHeliRotorDiffuse'),
 			ResourceLoader.get('aircraftHeliRotorNormal'),
+
+			// Drivable car: solid red body + dark cabin, flat normal maps.
+			ResourceLoader.get('carBodyDiffuse'),
+			ResourceLoader.get('carBodyNormal'),
+
+			ResourceLoader.get('carCabinDiffuse'),
+			ResourceLoader.get('carCabinNormal'),
 		],
 		minFilter: RendererTypes.MinFilter.LinearMipmapLinear,
 		magFilter: RendererTypes.MagFilter.Linear,

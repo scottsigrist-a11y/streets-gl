@@ -1,4 +1,5 @@
 import {OverpassEndpoint} from "~/app/systems/TileLoadingSystem";
+import {DrivingTouchInput} from "~/app/systems/DrivingSystem";
 
 export default interface UIActions {
 	updateRenderGraph: () => void;
@@ -10,4 +11,6 @@ export default interface UIActions {
 	setOverpassEndpoints: (endpoints: OverpassEndpoint[]) => void;
 	resetOverpassEndpoints: () => void;
 	getControlsStateHash: () => string;
+	setDrivingEnabled: (enabled: boolean) => void;
+	setDrivingTouchButton: (button: keyof DrivingTouchInput, pressed: boolean) => void;
 }

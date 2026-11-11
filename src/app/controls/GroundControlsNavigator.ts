@@ -78,6 +78,31 @@ export default class GroundControlsNavigator extends ControlsNavigator {
 		this.yaw = 0;
 	}
 
+	// Driving mode: point the chase camera at the car. DrivingSystem calls
+	// this every frame; update() then positions the camera from these
+	// values. Target height still comes from the terrain heightmap.
+	public setFollowCamera(x: number, z: number, yaw: number, pitch: number, distance: number): void {
+		this.target.x = x;
+		this.target.z = z;
+		this.yaw = yaw;
+		this.pitch = pitch;
+		this.distance = this.distanceTarget = distance;
+	}
+
+	// Clear any held movement keys (e.g. W held when driving starts, so the
+	// camera does not keep panning while the car is being driven).
+	public resetKeys(): void {
+		this.forwardKeyPressed = false;
+		this.leftKeyPressed = false;
+		this.rightKeyPressed = false;
+		this.backwardKeyPressed = false;
+		this.fastMovementKeyPressed = false;
+		this.pitchMinusKeyPressed = false;
+		this.pitchPlusKeyPressed = false;
+		this.yawMinusKeyPressed = false;
+		this.yawPlusKeyPressed = false;
+	}
+
 	private mouseDownEvent(e: MouseEvent): void {
 		if (!this.isEnabled) {
 			return;

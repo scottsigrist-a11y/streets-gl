@@ -22,6 +22,10 @@ export default new class ResourceLoader {
 		this.requests.set(name, {url, type});
 	}
 
+	public set(name: string, value: any): void {
+		this.resources.set(name, value);
+	}
+
 	public addFromJSON(resources: ResourceJSON): void {
 		for (const [name, record] of Object.entries(resources)) {
 			const type = ResourceLoader.getResourceTypeFromString(record.type);

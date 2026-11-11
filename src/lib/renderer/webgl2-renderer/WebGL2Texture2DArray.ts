@@ -36,12 +36,13 @@ export default class WebGL2Texture2DArray extends WebGL2Texture implements Abstr
 		this.writeFromBuffer(null);
 
 		if (this.data.length > 0) {
-			if (this.data[0] instanceof HTMLImageElement) {
-				for (let i = 0; i < this.data.length; i++) {
+			// Dispatch per slice: a texture array may mix image and raw
+			// buffer slices (e.g. the aircraft texture array holds loaded
+			// images plus runtime-generated solid-color car textures).
+			for (let i = 0; i < this.data.length; i++) {
+				if (this.data[i] instanceof HTMLImageElement) {
 					this.writeSliceFromImage(<HTMLImageElement>this.data[i], i);
-				}
-			} else {
-				for (let i = 0; i < this.data.length; i++) {
+				} else {
 					this.writeSliceFromBuffer(<TypedArray>this.data[i], i);
 				}
 			}

@@ -35,7 +35,12 @@ export enum AircraftPartType {
 	HelicopterRotorStatic,
 	HelicopterTailRotorStatic,
 	HelicopterRotorSpinning,
-	HelicopterTailRotorSpinning
+	HelicopterTailRotorSpinning,
+	// Parts of the drivable car (driving mode). They live in this enum
+	// because they are rendered through the same instanced-vehicle
+	// pipeline as the aircraft parts (see VehicleSystem / GBufferPass).
+	CarBody,
+	CarCabin
 }
 
 export interface AircraftPart {

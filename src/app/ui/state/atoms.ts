@@ -4,6 +4,7 @@ import {SettingsObjectEntry} from "~/app/settings/SettingsObject";
 import {SettingsSchema} from "~/app/settings/SettingsSchema";
 import {OverpassEndpoint} from "~/app/systems/TileLoadingSystem";
 import RenderGraphSnapshot from "~/app/ui/RenderGraphSnapshot";
+import {DrivingState} from "~/app/ui/UISystemState";
 
 export interface AtomsCollection {
 	activeFeature: RecoilState<{type: number; id: number}>;
@@ -20,6 +21,7 @@ export interface AtomsCollection {
 	settingsSchema: RecoilState<SettingsSchema>;
 	overpassEndpoints: RecoilState<OverpassEndpoint[]>;
 	dataTimestamp: RecoilState<Date>;
+	driving: RecoilState<DrivingState | null>;
 }
 
 export const getAtoms = (
@@ -82,6 +84,10 @@ export const getAtoms = (
 		dataTimestamp: atom({
 			key: 'dataTimestamp',
 			effects: [bidirectionalSyncEffect('dataTimestamp', commonStorage)]
+		}),
+		driving: atom({
+			key: 'driving',
+			effects: [bidirectionalSyncEffect('driving', commonStorage)]
 		}),
 	};
 }

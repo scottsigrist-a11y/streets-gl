@@ -11,9 +11,10 @@ import SettingsSystem from "~/app/systems/SettingsSystem";
 import SettingsStorageDecorator from "~/app/settings/SettingsStorageDecorator";
 import Utils from "~/app/Utils";
 import TileLoadingSystem, {OverpassEndpoint} from "~/app/systems/TileLoadingSystem";
-import UISystemState from "~/app/ui/UISystemState";
+import UISystemState, {DrivingState} from "~/app/ui/UISystemState";
 import RenderGraphSnapshot from "~/app/ui/RenderGraphSnapshot";
 import UIActions from "~/app/ui/UIActions";
+import DrivingSystem from "~/app/systems/DrivingSystem";
 
 const FPSUpdateInterval = 0.4;
 
@@ -34,7 +35,8 @@ export default class UISystem extends System {
 		northDirection: 0,
 		settingsSchema: {},
 		overpassEndpoints: [],
-		dataTimestamp: null
+		dataTimestamp: null,
+		driving: null
 	};
 	private fpsUpdateTimer = 0;
 
@@ -90,7 +92,15 @@ export default class UISystem extends System {
 		const actions: UIActions = {
 			updateRenderGraph: () => this.updateRenderGraph(),
 			goToLatLon: (lat: number, lon: number): void => {
-				this.systemManager.getSystem(ControlsSystem).setLatLon(lat, lon);
+				// While driving, a searched address moves the car there
+				// instead of just the camera.
+				const drivingSystem = this.systemManager.getSystem(DrivingSystem);
+
+				if (drivingSystem && drivingSystem.isDriving) {
+					drivingSystem.placeCarAt(lat, lon);
+				} else {
+					this.systemManager.getSystem(ControlsSystem).setLatLon(lat, lon);
+				}
 			},
 			goToState: (lat: number, lon: number, pitch: number, yaw: number, distance: number): void => {
 				this.systemManager.getSystem(ControlsSystem).setState(lat, lon, pitch, yaw, distance);
@@ -110,6 +120,20 @@ export default class UISystem extends System {
 			},
 			getControlsStateHash: (): string => {
 				return this.systemManager.getSystem(ControlsSystem).getCurrentStateHash();
+			},
+			setDrivingEnabled: (enabled: boolean): void => {
+				const drivingSystem = this.systemManager.getSystem(DrivingSystem);
+
+				if (drivingSystem) {
+					drivingSystem.setDrivingEnabled(enabled);
+				}
+			},
+			setDrivingTouchButton: (button, pressed): void => {
+				const drivingSystem = this.systemManager.getSystem(DrivingSystem);
+
+				if (drivingSystem) {
+					drivingSystem.setTouchButton(button, pressed);
+				}
 			}
 		}
 
@@ -118,6 +142,11 @@ export default class UISystem extends System {
 
 	public setResourcesLoadingProgress(progress: number): void {
 		this.ui.setStateFieldValue('resourcesLoadingProgress', progress);
+	}
+
+	// Live driving HUD state, published by DrivingSystem.
+	public setDrivingState(state: DrivingState): void {
+		this.ui.setStateFieldValue('driving', state);
 	}
 
 	public setResourceInProgressPath(path: string): void {

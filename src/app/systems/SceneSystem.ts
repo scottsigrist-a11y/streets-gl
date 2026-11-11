@@ -22,6 +22,7 @@ import {Tile3DInstanceLODConfig, Tile3DInstanceType} from "~/lib/tile-processing
 import Camera from "~/lib/core/Camera";
 import Utils from "~/app/Utils";
 import {AircraftPartType} from "~/app/vehicles/aircraft/Aircraft";
+import {createBoxModelSourceBuffers} from "~/app/vehicles/car/boxGeometry";
 
 interface SceneObjects {
 	wrapper: Object3D;
@@ -118,6 +119,21 @@ export default class SceneSystem extends System {
 			AircraftPartType.HelicopterTailRotorStatic,
 			new InstancedAircraftPart(ModelManager.getGLTFModel('aircraftHeliRotorTailStatic'))
 		);*/
+
+		// The drivable car (driving mode): a simple red box body with a
+		// darker cabin, rendered through the instanced-vehicle pipeline.
+		// Body: 4.6 m long, 0.9 m tall, 2.0 m wide, base on the ground.
+		// Cabin: 2.2 m long, 0.55 m tall, 1.7 m wide, set slightly rearward
+		// on top of the body. The aircraft parts stay unregistered: live
+		// air traffic is still off, only the car uses this pipeline.
+		this.objects.instancedAircraftParts.set(
+			AircraftPartType.CarBody,
+			new InstancedAircraftPart(createBoxModelSourceBuffers(4.6, 0.9, 2.0))
+		);
+		this.objects.instancedAircraftParts.set(
+			AircraftPartType.CarCabin,
+			new InstancedAircraftPart(createBoxModelSourceBuffers(2.2, 0.55, 1.7, -0.3, 0.9, 0))
+		);
 
 		this.objects.instancedObjects.set('tree', new InstancedTree(ModelManager.getGLTFModel('tree')));
 		this.objects.instancedObjects.set('adColumn', new GenericInstancedObject(ModelManager.getGLTFModel('adColumn')));

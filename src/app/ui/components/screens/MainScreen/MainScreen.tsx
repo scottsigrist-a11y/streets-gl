@@ -12,6 +12,7 @@ import NavPanel from "~/app/ui/components/NavPanel";
 import InfoModalPanel from "~/app/ui/components/InfoModalPanel";
 import SettingsModalPanel from "~/app/ui/components/SettingsModalPanel";
 import GeolocationButton from "~/app/ui/components/GeolocationButton";
+import DrivingPanel from "~/app/ui/components/DrivingPanel";
 import styles from './MainScreen.scss';
 import SavedPlacesModalPanel from "~/app/ui/components/SavedPlacesModalPanel";
 import DataTimestamp from "~/app/ui/components/DataTimestamp";
@@ -77,6 +78,7 @@ const MainScreen: React.FC = () => {
 			<LegalAttributionPanel/>
 			<CompassPanel/>
 			<GeolocationButton/>
+			<DrivingPanel/>
 			{
 				isRenderGraphVisible && (
 					<RenderGraphViewer
